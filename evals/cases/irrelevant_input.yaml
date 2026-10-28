@@ -1,0 +1,10 @@
+name: Irrelevant input
+title_hint: ""
+sources:
+  - type: notes
+    text: |
+      Had a great team lunch today.
+      The weather is sunny and warm.
+fake_response: irrelevant_input.json
+expect:
+  status: 422

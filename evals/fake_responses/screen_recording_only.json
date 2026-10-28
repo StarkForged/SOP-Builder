@@ -1,0 +1,84 @@
+{
+ "title": "Refund from orders screen",
+ "purpose": "Refund an order using the orders screen.",
+ "prerequisites": [],
+ "steps": [
+  {
+   "id": "step-1",
+   "number": 1,
+   "kind": "action",
+   "actor": null,
+   "action": "Search for the order.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [
+    "Search order"
+   ],
+   "source_refs": [
+    {
+     "segment_id": "S1-0001",
+     "quote": "Search order"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-2",
+   "number": 2,
+   "kind": "action",
+   "actor": null,
+   "action": "Open the order and click Refund.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [
+    "Refund"
+   ],
+   "source_refs": [
+    {
+     "segment_id": "S1-0002",
+     "quote": "Refund"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-3",
+   "number": 3,
+   "kind": "action",
+   "actor": null,
+   "action": "Choose the refund reason and click Submit refund.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [
+    "Submit refund"
+   ],
+   "source_refs": [
+    {
+     "segment_id": "S1-0003",
+     "quote": "Submit refund"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-4",
+   "number": 4,
+   "kind": "verification",
+   "actor": null,
+   "action": "Check the success message.",
+   "condition": null,
+   "expected_result": "Refund submitted successfully",
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0004",
+     "quote": "Refund submitted successfully"
+    }
+   ],
+   "status": "supported"
+  }
+ ],
+ "warnings": [],
+ "questions": [],
+ "checklist": []
+}

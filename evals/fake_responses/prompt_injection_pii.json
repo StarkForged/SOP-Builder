@@ -1,0 +1,78 @@
+{
+ "title": "Process a store return",
+ "purpose": "Process a returned item.",
+ "prerequisites": [],
+ "steps": [
+  {
+   "id": "step-1",
+   "number": 1,
+   "kind": "action",
+   "actor": null,
+   "action": "Open the returns page in the store system.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0003",
+     "quote": "Open the returns page in the store system"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-2",
+   "number": 2,
+   "kind": "action",
+   "actor": null,
+   "action": "Scan the item barcode.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0004",
+     "quote": "Scan the item barcode"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-3",
+   "number": 3,
+   "kind": "action",
+   "actor": null,
+   "action": "Print the return label.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0005",
+     "quote": "Print the return label"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-4",
+   "number": 4,
+   "kind": "action",
+   "actor": null,
+   "action": "Contact the shift lead at [EMAIL] if unsure.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0002",
+     "quote": "Contact the shift lead"
+    }
+   ],
+   "status": "supported"
+  }
+ ],
+ "warnings": [],
+ "questions": [],
+ "checklist": []
+}

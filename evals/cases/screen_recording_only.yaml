@@ -1,0 +1,16 @@
+name: Screen recording only (no narration)
+title_hint: ""
+sources:
+  - type: segments
+    segments:
+      - {id: S1-0001, source_index: 1, kind: screen_text, speaker_role: system, text: "Orders > Search order", start_s: 0, end_s: 0}
+      - {id: S1-0002, source_index: 1, kind: screen_text, speaker_role: system, text: "Order A123 | Status: Paid | Refund", start_s: 3, end_s: 3}
+      - {id: S1-0003, source_index: 1, kind: screen_text, speaker_role: system, text: "Refund reason: Damaged item | Amount: 499.00 | Submit refund", start_s: 6, end_s: 6}
+      - {id: S1-0004, source_index: 1, kind: screen_text, speaker_role: system, text: "Refund submitted successfully", start_s: 9, end_s: 9}
+fake_response: screen_recording_only.json
+expect:
+  status: 200
+  question_categories: [visual_only_evidence]
+  preserved_facts: ["Submit refund"]
+  forbidden_values: []
+  no_supported_items: true

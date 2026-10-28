@@ -1,0 +1,78 @@
+{
+ "title": "Expense reimbursement",
+ "purpose": "Reimburse employee expenses.",
+ "prerequisites": [],
+ "steps": [
+  {
+   "id": "step-1",
+   "number": 1,
+   "kind": "action",
+   "actor": "Employee",
+   "action": "Submit the expense claim form with receipts.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0002",
+     "quote": "submits the expense claim form"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-2",
+   "number": 2,
+   "kind": "action",
+   "actor": "Manager",
+   "action": "Manager approves the claim.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0003",
+     "quote": "Manager approves the claim"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-3",
+   "number": 3,
+   "kind": "verification",
+   "actor": "Finance",
+   "action": "Check the receipts against the claim.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0004",
+     "quote": "checks the receipts against the claim"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-4",
+   "number": 4,
+   "kind": "action",
+   "actor": "Finance",
+   "action": "Pay the employee by bank transfer within 30 days.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0005",
+     "quote": "pays the employee by bank transfer"
+    }
+   ],
+   "status": "supported"
+  }
+ ],
+ "warnings": [],
+ "questions": [],
+ "checklist": []
+}

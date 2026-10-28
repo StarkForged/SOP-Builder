@@ -1,0 +1,90 @@
+{
+ "title": "Server patching",
+ "purpose": "Patch servers safely.",
+ "prerequisites": [],
+ "steps": [
+  {
+   "id": "step-1",
+   "number": 1,
+   "kind": "action",
+   "actor": null,
+   "action": "Check for updates, usually on Mondays.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0001",
+     "quote": "Check for updates usually on Mondays"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-2",
+   "number": 2,
+   "kind": "action",
+   "actor": null,
+   "action": "Apply patches to the staging server as required.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0002",
+     "quote": "Apply patches to the staging server"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-3",
+   "number": 3,
+   "kind": "action",
+   "actor": null,
+   "action": "Restart the server soon after patching, within 15 minutes.",
+   "condition": null,
+   "expected_result": null,
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0003",
+     "quote": "Restart the server soon"
+    }
+   ],
+   "status": "supported"
+  },
+  {
+   "id": "step-4",
+   "number": 4,
+   "kind": "verification",
+   "actor": null,
+   "action": "Verify the website loads.",
+   "condition": null,
+   "expected_result": "Website loads",
+   "ui_elements": [],
+   "source_refs": [
+    {
+     "segment_id": "S1-0004",
+     "quote": "Verify the website loads"
+    }
+   ],
+   "status": "supported"
+  }
+ ],
+ "warnings": [],
+ "questions": [
+  {
+   "id": "q-1",
+   "question": "How often exactly should updates be checked?",
+   "reason": "'usually' is vague",
+   "category": "ambiguous_term",
+   "severity": "optional",
+   "related_item_ids": [
+    "step-1"
+   ],
+   "origin": "llm"
+  }
+ ],
+ "checklist": []
+}

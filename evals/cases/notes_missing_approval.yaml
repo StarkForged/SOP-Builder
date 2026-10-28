@@ -1,0 +1,16 @@
+name: Notes missing approval rules
+title_hint: Expense reimbursement
+sources:
+  - type: notes
+    text: |
+      Expense reimbursement
+      - Employee submits the expense claim form with receipts
+      - Manager approves the claim
+      - Finance checks the receipts against the claim
+      - Finance pays the employee by bank transfer
+fake_response: notes_missing_approval.json
+expect:
+  status: 200
+  question_categories: [approval_rule, missing_document, failure_handling, invented_detail]
+  preserved_facts: ["bank transfer", "receipts"]
+  forbidden_values: ["30 days"]

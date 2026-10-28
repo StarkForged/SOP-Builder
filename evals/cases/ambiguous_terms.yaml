@@ -1,0 +1,15 @@
+name: Ambiguous terms
+title_hint: Server patching
+sources:
+  - type: notes
+    text: |
+      1. Check for updates usually on Mondays
+      2. Apply patches to the staging server as required
+      3. Restart the server soon after patching
+      4. Verify the website loads
+fake_response: ambiguous_terms.json
+expect:
+  status: 200
+  question_categories: [ambiguous_term, invented_detail]
+  preserved_facts: ["staging server", "Mondays"]
+  forbidden_values: ["15 minutes"]

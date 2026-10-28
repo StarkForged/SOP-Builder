@@ -1,0 +1,21 @@
+name: Conflicting interview vs notes
+title_hint: Customer refund
+sources:
+  - type: notes
+    text: |
+      Refunds over ₹5,000 need manager approval
+      Open the order in the admin portal
+      Issue the refund from the order page
+  - type: transcript
+    interviewer: Asha
+    text: |
+      Asha: When do you need approval?
+      Ravi: Refunds over ₹10,000 need manager approval.
+      Asha: What do you do next?
+      Ravi: I issue the refund and email the customer.
+fake_response: conflict_interview_vs_notes.json
+expect:
+  status: 200
+  question_categories: [conflict]
+  preserved_facts: ["₹5,000", "admin portal"]
+  forbidden_values: []

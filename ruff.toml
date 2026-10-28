@@ -1,0 +1,7 @@
+line-length = 130
+target-version = "py312"
+extend-exclude = ["reports"]
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["B008"]

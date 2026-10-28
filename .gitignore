@@ -1,0 +1,50 @@
+# AI build files (keep local, never publish)
+CLAUDE.md
+KICKOFF_PROMPT.md
+.claude/
+
+# Secrets
+.env
+.env.*
+*.env
+*.pem
+*.key
+.vercel/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+
+# Tests / reports / caches
+reports/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local media used for manual testing
+samples/
+*.mp4
+*.mov
+*.webm
+*.wav
+*.mp3
+*.m4a
+!tests/fixtures/**
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+node_modules/
