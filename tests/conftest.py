@@ -4,7 +4,8 @@ import socket
 
 import pytest
 
-for _k in ("GEMINI_API_KEY", "GROQ_API_KEY"):
+for _k in ("GROQ_API_KEY", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "VISION_MODEL",
+           "LLM_FALLBACK_BASE_URL", "LLM_FALLBACK_API_KEY", "LLM_FALLBACK_MODEL"):
     os.environ.pop(_k, None)
 os.environ["RATE_LIMIT_MAX"] = "100000"
 

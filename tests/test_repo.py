@@ -7,7 +7,7 @@ KEY_PATTERNS = [
     re.compile(r"AIza[0-9A-Za-z_\-]{35}"),
     re.compile(r"gsk_[A-Za-z0-9]{20,}"),
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
-    re.compile(r"(?i)(GEMINI|GROQ)_API_KEY\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{12,}"),
+    re.compile(r"(?i)(GEMINI|GROQ|LLM|LLM_FALLBACK)_API_KEY\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{12,}"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
 ]
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache", "reports", ".claude", ".venv", "venv"}

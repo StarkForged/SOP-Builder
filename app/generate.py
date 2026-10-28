@@ -2,17 +2,20 @@
 
 import html
 import json
+import logging
 import re
+from typing import get_args
 
 from pydantic import ValidationError
 
 from app.ai import LLMClient, load_prompt
+from app.budget import build_bundle, clean_segments, condense, est_tokens
 from app.checklist import build_checklist
-from app.config import PROMPT_VERSION
+from app.config import PROMPT_VERSION, get_settings
 from app.detectors import run_detectors
 from app.gaps import gap_questions, merge_questions
 from app.redact import redact
-from app.schema import SOP, GenerateRequest, Segment
+from app.schema import SOP, GenerateRequest, Question, Segment
 from app.segments import make_id
 from app.validators import apply_evidence_rules, structural_errors
 
@@ -25,6 +28,10 @@ ACTION_VERBS = re.compile(
     r"delete|remove|edit|change|inspect|test|measure|clean|lock|unlock|collect|deliver|receive|count|weigh)"
     r"(?:s|es|d|ed|ing|ted|ped|ting)?\b"
 )
+
+
+log = logging.getLogger("sop.tokens")
+CATEGORIES = "|".join(get_args(Question.model_fields["category"].annotation))
 
 
 class InsufficientSource(Exception):
@@ -41,22 +48,6 @@ def answer_segments(req: GenerateRequest) -> list[Segment]:
         out.append(Segment(id=make_id(0, i), source_index=0, kind="reviewer_answer", speaker_role="reviewer",
                            text=f"Q: {a.question} A: {a.answer}"[:20000], confidence=1.0))
     return out
-
-
-def _t(seg: Segment) -> str:
-    if seg.start_s is None:
-        return ""
-    end = seg.end_s if seg.end_s is not None else seg.start_s
-    return f"{seg.start_s:.1f}-{end:.1f}"
-
-
-def build_bundle(segments: list[Segment]) -> str:
-    rows = []
-    for s in segments:
-        attrs = " ".join(f'{k}="{html.escape(v, quote=True)}"' for k, v in
-                         (("id", s.id), ("kind", s.kind), ("speaker", s.speaker_role), ("t", _t(s))))
-        rows.append(f"<segment {attrs}>{html.escape(s.text, quote=True)}</segment>")
-    return "<sources>\n" + "\n".join(rows) + "\n</sources>"
 
 
 def count_actions(segments: list[Segment]) -> int:
@@ -87,27 +78,51 @@ def redact_obj(obj):
     return obj
 
 
+def _log_call(name: str, system: str, user: str, max_tokens: int, budget: int) -> None:
+    prompt = est_tokens(system) + est_tokens(user)
+    log.info("llm call=%s prompt_tokens~%d max_tokens=%d total~%d budget=%d",
+             name, prompt, max_tokens, prompt + max_tokens, budget)
+
+
+def compose_prompts(req: GenerateRequest, segments: list[Segment]) -> tuple[str, str, list[Segment], bool]:
+    """System + user prompt sized so prompt + max_tokens stays within the token budget."""
+    s = get_settings()
+    system = load_prompt("system.md")
+    title_hint = html.escape(redact(req.title_hint or "")[:200], quote=True)
+    head = load_prompt("compose.md").replace("{categories}", CATEGORIES).replace("{title_hint}", title_hint or "(none)")
+    room = s.llm_token_budget - s.llm_max_tokens - est_tokens(system) - est_tokens(head) - 20
+    cleaned = clean_segments(segments, s.llm_segment_chars)
+    sent, condensed = condense(cleaned, max(0, min(s.llm_source_tokens, room)))
+    return system, head + "\n\n" + build_bundle(sent), sent, condensed
+
+
+def repair_prompt(system: str, raw: str, errors: list[str], sent: list[Segment]) -> str:
+    s = get_settings()
+    head = (load_prompt("repair.md")
+            .replace("{segment_ids}", ", ".join(x.id for x in sent))
+            .replace("{errors}", html.escape("\n".join(f"- {e}" for e in errors[:20]))))
+    room = s.llm_token_budget - s.llm_repair_max_tokens - est_tokens(system) - est_tokens(head) - 20
+    return head.replace("{previous}", html.escape(raw[: max(0, room) * 4]))
+
+
 def generate_sop(req: GenerateRequest, llm: LLMClient) -> dict:
-    segments = [s.model_copy(update={"text": redact(s.text)}) for s in req.segments]
-    segments += [s.model_copy(update={"text": redact(s.text)}) for s in answer_segments(req)]
-    seg_map = {s.id: s for s in segments}
+    s = get_settings()
+    segments = [x.model_copy(update={"text": redact(x.text)}) for x in req.segments]
+    segments += [x.model_copy(update={"text": redact(x.text)}) for x in answer_segments(req)]
+    seg_map = {x.id: x for x in segments}
     if count_actions(segments) < 2:
         raise InsufficientSource()
 
-    schema = SOP.model_json_schema()
-    system = load_prompt("system.md")
-    title_hint = html.escape(redact(req.title_hint or ""), quote=True)
-    user = load_prompt("compose.md").replace("{title_hint}", title_hint or "(none)") + "\n\n" + build_bundle(segments)
-
-    raw = llm.complete_json(system, user, schema)
+    system, user, sent, condensed = compose_prompts(req, segments)
+    _log_call("compose", system, user, s.llm_max_tokens, s.llm_token_budget)
+    raw = llm.complete_json(system, user, s.llm_max_tokens)
     sop, errors = _parse(raw, seg_map)
     repaired = False
     if sop is None:
         repaired = True
-        repair_user = (load_prompt("repair.md")
-                       .replace("{errors}", html.escape("\n".join(f"- {e}" for e in errors)))
-                       .replace("{previous}", html.escape(raw[:20000]))) + "\n\n" + build_bundle(segments)
-        raw = llm.complete_json(system, repair_user, schema)
+        repair_user = repair_prompt(system, raw, errors, sent)
+        _log_call("repair", system, repair_user, s.llm_repair_max_tokens, s.llm_token_budget)
+        raw = llm.complete_json(system, repair_user, s.llm_repair_max_tokens)
         sop, errors = _parse(raw, seg_map)
         if sop is None:
             raise GenerationFailed()
@@ -134,5 +149,10 @@ def generate_sop(req: GenerateRequest, llm: LLMClient) -> dict:
             "model": getattr(llm, "model", "unknown"),
             "prompt_version": PROMPT_VERSION,
             "repaired": repaired,
+            "source_condensed": condensed,
+            "segments_sent": len(sent),
+            "segments_total": len(segments),
+            "notes": ([f"The source was condensed to fit the free AI limit: the {len(sent)} most relevant of "
+                       f"{len(segments)} segments were sent."] if condensed else []),
         },
     }

@@ -1,84 +1,269 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SOP Builder</title>
-  <link rel="stylesheet" href="/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOP Builder</title>
+<meta name="description" content="Turn recordings, interviews and rough notes into SOPs you can trust.">
+<meta name="color-scheme" content="light dark">
+<script>try{var t=localStorage.getItem("sop-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Manrope:wght@700;800&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234F46E5'/%3E%3Cpath d='M8 11h11M8 16h9M8 21h6' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='m18 21 3 3 5-6' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script type="module" src="/app.js"></script>
 </head>
 <body>
-<header class="container">
-  <h1>SOP Builder</h1>
-  <p>Turn screen recordings, staff interviews and rough notes into a Standard Operating Procedure, with the gaps flagged for staff to confirm.</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-brand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4F46E5"/><stop offset=".55" stop-color="#7C3AED"/><stop offset="1" stop-color="#0EA5A4"/></linearGradient>
+  </defs>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-notes" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="m22 8-6 4 6 4Z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M19 15v4M17 17h4M5 3v3M3.5 4.5h3"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-word" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 12l1.5 6 2.5-5 2.5 5L16 12"/></symbol>
+  <symbol id="i-md" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15V9l3 3 3-3v6M17 9v6M15 13l2 2 2-2"/></symbol>
+  <symbol id="i-json" viewBox="0 0 24 24"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 4 14 8-14 8Z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1Z"/></symbol>
+  <symbol id="i-logo" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="9" fill="url(#g-brand)" stroke="none"/><path d="M8 11h11M8 16h9M8 21h5" stroke="#fff" stroke-width="2.4"/><path d="m17.5 21 3 3 5-6" stroke="#fff" stroke-width="2.4"/></symbol>
+</svg>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="#" id="brand" aria-label="SOP Builder, back to start">
+      <svg class="logo" aria-hidden="true"><use href="#i-logo"/></svg><span>SOP Builder</span>
+    </a>
+    <nav class="stepper" aria-label="Progress" id="stepper" hidden>
+      <ol>
+        <li><button type="button" data-step="1"><span class="num">1</span><span class="lbl">Add sources</span></button></li>
+        <li><button type="button" data-step="2"><span class="num">2</span><span class="lbl">Generate</span></button></li>
+        <li><button type="button" data-step="3"><span class="num">3</span><span class="lbl">Review</span></button></li>
+        <li><button type="button" data-step="4"><span class="num">4</span><span class="lbl">Export</span></button></li>
+      </ol>
+    </nav>
+    <div class="top-actions">
+      <button type="button" class="btn ghost sm" id="how-btn"><svg class="ic"><use href="#i-help"/></svg><span class="hide-sm">How it works</span><span class="sr-only show-sm">How it works</span></button>
+      <button type="button" class="btn ghost sm icon-only" id="theme-btn" aria-label="Switch to dark theme"><svg class="ic"><use href="#i-moon"/></svg></button>
+      <button type="button" class="btn ghost sm" popovertarget="session-menu" id="session-btn"><svg class="ic"><use href="#i-folder"/></svg><span class="hide-sm">Session</span><span class="sr-only show-sm">Session</span></button>
+      <div popover id="session-menu" class="menu">
+        <label class="menu-item"><svg class="ic"><use href="#i-folder"/></svg>Load session…<input type="file" id="load-session" accept=".json,application/json" class="sr-only"></label>
+        <button type="button" class="menu-item" id="save-session"><svg class="ic"><use href="#i-save"/></svg>Save session</button>
+      </div>
+    </div>
+  </div>
 </header>
 
-<main class="container">
-  <section class="card" id="sec-sources">
-    <h2>1. Add sources</h2>
-    <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="notes">Rough notes</button>
-      <button class="tab" data-tab="interview">Staff interview</button>
-      <button class="tab" data-tab="screen">Screen recording</button>
+<main id="main" tabindex="-1">
+  <section id="hero" class="hero wrap" aria-labelledby="hero-title">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow"><svg class="ic"><use href="#i-sparkles"/></svg>Free · No sign-up · Nothing stored</p>
+        <h1 id="hero-title">Turn recordings, interviews and rough notes into <span class="grad-text">SOPs you can trust.</span></h1>
+        <p class="lead">Every step is checked against your sources. Anything missing or unclear becomes a question for your staff, never a guess.</p>
+        <div class="cta-row">
+          <button type="button" class="btn primary lg" id="start-btn">Start building<svg class="ic"><use href="#i-arrow"/></svg></button>
+          <button type="button" class="btn secondary lg" id="sample-btn"><svg class="ic"><use href="#i-play"/></svg>Try a sample</button>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="art-inputs">
+          <div class="art-chip"><svg class="ic"><use href="#i-video"/></svg>Screen recording</div>
+          <div class="art-chip"><svg class="ic"><use href="#i-mic"/></svg>Interview</div>
+          <div class="art-chip"><svg class="ic"><use href="#i-notes"/></svg>Notes</div>
+        </div>
+        <div class="art-flow"><span></span><span></span><span></span></div>
+        <div class="art-doc">
+          <div class="art-doc-title">Customer refund</div>
+          <div class="art-step"><b>1</b><i style="--w:80%"></i><svg class="ic ok"><use href="#i-check"/></svg></div>
+          <div class="art-step"><b>2</b><i style="--w:64%"></i><svg class="ic ok"><use href="#i-check"/></svg></div>
+          <div class="art-step"><b>3</b><i style="--w:72%"></i></div>
+          <div class="art-tag"><svg class="ic"><use href="#i-help"/></svg>Needs confirmation</div>
+          <div class="art-step"><b>4</b><i style="--w:56%"></i><svg class="ic ok"><use href="#i-check"/></svg></div>
+        </div>
+      </div>
     </div>
 
-    <div class="tabpanel" id="tab-notes">
-      <label>Paste notes<textarea id="notes-text" rows="7" placeholder="- Open the Orders page&#10;- Search for the order number&#10;- ..."></textarea></label>
-      <label>…or upload a file (.txt .md .docx .pdf, max 4 MB)<input type="file" id="notes-file" accept=".txt,.md,.docx,.pdf"></label>
-      <button id="add-notes">Add notes</button>
+    <div class="features">
+      <article class="feature reveal"><span class="f-ic"><svg class="ic"><use href="#i-layers"/></svg></span><h2>Multi-source input</h2><p>Combine rough notes, staff interviews and narrated screen recordings in one procedure.</p></article>
+      <article class="feature reveal"><span class="f-ic"><svg class="ic"><use href="#i-shield"/></svg></span><h2>Gaps flagged, never invented</h2><p>Amounts, limits and approvals that aren't in your sources are flagged for staff to confirm.</p></article>
+      <article class="feature reveal"><span class="f-ic"><svg class="ic"><use href="#i-word"/></svg></span><h2>Export to Word</h2><p>Download a clean .docx or Markdown with a review checklist and the source behind every step.</p></article>
     </div>
 
-    <div class="tabpanel hidden" id="tab-interview">
-      <label>Transcript file (.vtt .srt .txt with "Name:" prefixes)<input type="file" id="transcript-file" accept=".vtt,.srt,.txt"></label>
-      <button id="add-transcript">Add transcript</button>
-      <hr>
-      <label>…or an audio/video recording (mp3 wav m4a ogg webm mp4 mov, max 200 MB / 30 min)<input type="file" id="interview-media" accept=".mp3,.wav,.m4a,.ogg,.webm,.mp4,.mov,audio/*,video/*"></label>
-      <button id="add-interview-media">Transcribe interview</button>
-    </div>
-
-    <div class="tabpanel hidden" id="tab-screen">
-      <label>Screen recording (mp4 webm mov, max 200 MB / 30 min)<input type="file" id="screen-file" accept=".mp4,.webm,.mov,video/*"></label>
-      <button id="add-screen">Process recording</button>
-      <p class="muted">Narration is transcribed and a screenshot is read every 3 seconds (max 40).</p>
-    </div>
-
-    <label class="consent"><input type="checkbox" id="consent"> Audio and screenshots are sent to free AI services (Groq, Google Gemini). Don't upload confidential or personal data.</label>
-
-    <div id="progress" class="muted"></div>
-    <div id="sources-error" class="error"></div>
-    <h3>Added sources</h3>
-    <ul id="source-list" class="list"><li class="muted">No sources yet.</li></ul>
+    <ol class="how-strip reveal" aria-label="How it works">
+      <li><span>1</span><div><b>Add sources</b><small>Notes, interviews, recordings</small></div></li>
+      <li><span>2</span><div><b>Generate</b><small>A draft in about a minute</small></div></li>
+      <li><span>3</span><div><b>Review</b><small>Answer the flagged questions</small></div></li>
+      <li><span>4</span><div><b>Export</b><small>Word, Markdown or session file</small></div></li>
+    </ol>
   </section>
 
-  <section class="card" id="sec-generate">
-    <h2>2. Generate SOP</h2>
-    <label>Title hint (optional)<input type="text" id="title-hint" maxlength="200"></label>
-    <button id="generate" class="primary">Generate SOP</button>
-    <div id="generate-status" class="muted"></div>
-    <div id="generate-error" class="error"></div>
-  </section>
+  <section id="app" class="wrap app" hidden aria-live="off">
+    <section class="panel" data-panel="1" aria-labelledby="p1-title" hidden>
+      <header class="panel-head"><h2 id="p1-title">Add your sources</h2><p class="muted">Add one or more. Everything stays in this browser until you generate.</p></header>
+      <div class="p1-grid">
+        <div class="card">
+          <div class="seg" role="tablist" aria-label="Source type">
+            <button type="button" role="tab" id="tab-notes" aria-controls="tp-notes" aria-selected="true"><svg class="ic"><use href="#i-notes"/></svg>Rough notes</button>
+            <button type="button" role="tab" id="tab-interview" aria-controls="tp-interview" aria-selected="false" tabindex="-1"><svg class="ic"><use href="#i-mic"/></svg>Staff interview</button>
+            <button type="button" role="tab" id="tab-screen" aria-controls="tp-screen" aria-selected="false" tabindex="-1"><svg class="ic"><use href="#i-video"/></svg>Screen recording</button>
+          </div>
 
-  <section class="card" id="sec-review">
-    <h2>3. Review</h2>
-    <div id="review"><p class="muted">Generate an SOP to review it here.</p></div>
-  </section>
+          <div role="tabpanel" id="tp-notes" aria-labelledby="tab-notes" class="tp">
+            <label class="drop" data-kind="notes">
+              <input type="file" accept=".txt,.md,.docx,.pdf" class="sr-only" id="file-notes">
+              <span class="drop-ic"><svg class="ic"><use href="#i-upload"/></svg></span>
+              <span class="drop-title">Drop a file or click to browse</span>
+              <span class="mono drop-meta">.txt .md .docx .pdf · up to 4 MB</span>
+            </label>
+            <div class="field">
+              <label for="notes-text">…or paste notes</label>
+              <textarea id="notes-text" rows="6" placeholder="- Open the Orders page&#10;- Search for the order number&#10;- …" aria-describedby="notes-help"></textarea>
+              <div class="field-help"><span id="notes-help">Tip: press <kbd>/</kbd> to jump here.</span><span class="mono" id="notes-count">0 characters</span></div>
+            </div>
+            <button type="button" class="btn secondary" id="add-notes"><svg class="ic"><use href="#i-notes"/></svg>Add notes</button>
+          </div>
 
-  <section class="card" id="sec-export">
-    <h2>4. Export</h2>
-    <label>Reviewer name<input type="text" id="reviewer" maxlength="120"></label>
-    <div class="row">
-      <button id="export-docx">Download DOCX</button>
-      <button id="export-md">Download Markdown</button>
-      <button id="save-session">Save session (JSON)</button>
-      <label class="filebtn">Load session<input type="file" id="load-session" accept=".json"></label>
-      <button id="clear-session" class="link">Start over</button>
-    </div>
-    <div id="export-error" class="error"></div>
+          <div role="tabpanel" id="tp-interview" aria-labelledby="tab-interview" class="tp" hidden>
+            <label class="drop" data-kind="interview">
+              <input type="file" accept=".vtt,.srt,.txt,.mp3,.wav,.m4a,.ogg,.webm,.mp4,.mov,audio/*,video/*" class="sr-only" id="file-interview">
+              <span class="drop-ic"><svg class="ic"><use href="#i-mic"/></svg></span>
+              <span class="drop-title">Drop a recording or transcript, or click to browse</span>
+              <span class="mono drop-meta">Audio/video: mp3 wav m4a ogg webm mp4 mov · 200 MB / 30 min</span>
+              <span class="mono drop-meta">Transcript: .vtt .srt .txt with "Name:" prefixes</span>
+            </label>
+          </div>
+
+          <div role="tabpanel" id="tp-screen" aria-labelledby="tab-screen" class="tp" hidden>
+            <label class="drop" data-kind="screen">
+              <input type="file" accept=".mp4,.webm,.mov,video/*" class="sr-only" id="file-screen">
+              <span class="drop-ic"><svg class="ic"><use href="#i-video"/></svg></span>
+              <span class="drop-title">Drop a screen recording or click to browse</span>
+              <span class="mono drop-meta">mp4 webm mov · 200 MB / 30 min</span>
+            </label>
+            <div class="field ocr-lang"><label for="ocr-lang">On-screen language</label><select id="ocr-lang"><option value="eng">English</option><option value="eng+hin">English + Hindi</option><option value="eng+guj">English + Gujarati</option></select></div>
+            <p class="muted small">We transcribe the narration and read the screen every 3 seconds (up to 40 moments). Screenshots are read in your browser and never uploaded.</p>
+          </div>
+
+          <label class="consent" id="consent-box" hidden>
+            <input type="checkbox" id="consent">
+            <span>Audio is sent to a free AI service (Groq) for transcription; screenshots stay in your browser. Don't upload confidential or personal data. <button type="button" class="linkish" data-open="dlg-privacy">Privacy details</button></span>
+          </label>
+        </div>
+
+        <aside class="card sources-card" aria-labelledby="sources-title">
+          <div class="card-head"><h3 id="sources-title">Your sources</h3><span class="pill mono" id="sources-count">0</span></div>
+          <ul class="sources" id="source-list" aria-live="polite"></ul>
+          <div class="empty" id="sources-empty">
+            <svg class="ic xl"><use href="#i-inbox"/></svg>
+            <p><b>No sources yet</b><br><span class="muted">Add at least one source to continue.</span></p>
+          </div>
+        </aside>
+      </div>
+      <div class="panel-foot">
+        <span class="muted small" id="p1-hint">Add at least one source to continue.</span>
+        <button type="button" class="btn primary" id="to-step2" disabled>Continue<svg class="ic"><use href="#i-arrow"/></svg></button>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="2" aria-labelledby="p2-title" hidden>
+      <header class="panel-head"><h2 id="p2-title">Generate your SOP</h2><p class="muted">We draft the procedure, then check every step against your sources.</p></header>
+      <div class="card gen-card">
+        <div class="field">
+          <label for="title-hint">Procedure title <span class="muted">(optional)</span></label>
+          <input type="text" id="title-hint" maxlength="200" placeholder="e.g. Customer refund processing">
+        </div>
+        <div><span class="small muted">Sources</span><div class="chips" id="gen-sources"></div></div>
+        <div class="gen-actions">
+          <button type="button" class="btn ghost" data-go="1"><svg class="ic"><use href="#i-back"/></svg>Back</button>
+          <button type="button" class="btn primary xl" id="generate"><svg class="ic"><use href="#i-sparkles"/></svg>Generate SOP</button>
+        </div>
+        <p class="small muted center">Shortcut: <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd></p>
+      </div>
+      <div class="card gen-progress" id="gen-progress" hidden aria-live="polite">
+        <ol class="stages" id="stages">
+          <li>Preparing sources</li><li>Drafting procedure</li><li>Checking every step against sources</li><li>Finding gaps</li>
+        </ol>
+        <div class="skeleton-doc" aria-hidden="true"><i style="--w:45%"></i><i style="--w:90%"></i><i style="--w:75%"></i><i style="--w:85%"></i><i style="--w:60%"></i></div>
+      </div>
+      <div id="gen-error"></div>
+    </section>
+
+    <section class="panel" data-panel="3" aria-labelledby="p3-title" hidden>
+      <div id="review"></div>
+    </section>
+
+    <section class="panel" data-panel="4" aria-labelledby="p4-title" hidden>
+      <div id="export"></div>
+    </section>
   </section>
 </main>
 
-<footer class="container muted">
-  Nothing is stored on our server. Files are processed by Groq and Google Gemini free tiers; don't upload confidential data.
+<footer class="privacy">
+  <div class="wrap privacy-in"><svg class="ic"><use href="#i-lock"/></svg><p>Nothing is stored on our server. Audio and text are processed by Groq's free tier; screenshots stay in your browser — avoid confidential data.</p></div>
 </footer>
-<script src="/app.js"></script>
+
+<dialog id="dlg-how" aria-labelledby="how-title">
+  <form method="dialog" class="dlg">
+    <header class="dlg-head"><h2 id="how-title">How it works</h2><button class="btn ghost icon-only sm" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></header>
+    <ol class="how-list">
+      <li><b>Add sources.</b> Paste notes, upload a transcript, an interview recording or a screen recording. Media is cut into small pieces in your browser before upload.</li>
+      <li><b>Generate.</b> An AI drafts the SOP. Our checks then compare every step with your sources.</li>
+      <li><b>Review.</b> Steps are marked <em>Backed by source</em>, <em>Seen on screen only</em> or <em>Needs staff confirmation</em>. Answer the questions and regenerate.</li>
+      <li><b>Export.</b> Word or Markdown. If required questions are open, the document is marked DRAFT.</li>
+    </ol>
+  </form>
+</dialog>
+
+<dialog id="dlg-privacy" aria-labelledby="priv-title">
+  <form method="dialog" class="dlg">
+    <header class="dlg-head"><h2 id="priv-title">Privacy</h2><button class="btn ghost icon-only sm" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></header>
+    <p>Nothing is stored on our server: no accounts, no database, no files kept. Your work stays in this browser.</p>
+    <p>Audio (speech to text) and the redacted text (drafting the SOP) are sent to <b>Groq</b>'s free tier. Screen recordings are read in your browser with Tesseract.js: screenshots are never uploaded, only the recognised text. Emails, phone numbers, card numbers, Aadhaar, PAN and passwords are masked before text is sent to the AI and in every result.</p>
+    <p>Please don't upload confidential or personal data.</p>
+  </form>
+</dialog>
+
+<dialog id="dlg-preview" aria-labelledby="prev-title" class="wide">
+  <form method="dialog" class="dlg">
+    <header class="dlg-head"><h2 id="prev-title">Preview</h2><button class="btn ghost icon-only sm" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></header>
+    <div id="preview-body" class="timeline"></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-confirm" aria-labelledby="confirm-title">
+  <form method="dialog" class="dlg">
+    <h2 id="confirm-title">Are you sure?</h2>
+    <p id="confirm-text"></p>
+    <div class="dlg-actions"><button class="btn ghost" value="cancel">Cancel</button><button class="btn danger" value="ok" id="confirm-ok">Confirm</button></div>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

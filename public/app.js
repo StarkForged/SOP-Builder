@@ -1,590 +1,459 @@
-"use strict";
-// SOP Builder front end: all work-in-progress lives in this browser tab (+ optional localStorage).
+// Entry point: wiring, sources (step 1), generation (step 2), navigation, theme, session.
+import { state, fresh, replace, emit, bus, save, loadSaved, clearSaved, readySources, allSegments, committedAnswers, answersSig } from "./state.js";
+import { request } from "./api.js";
+import { $, $$, el, icon, fmtTime, fmtSize, toast, openDialog, confirmDialog, transition, busy } from "./ui.js";
+import { checkMedia, decodeTo16kMono, encodeWav, audioChunks, extractFrames } from "./media.js";
+import { renderReview } from "./review.js";
+import { renderExport, saveSession } from "./export.js";
 
-const STORE_KEY = "sop-builder-session-v1";
-const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
-const MAX_MEDIA_SECONDS = 30 * 60;
-const CHUNK_SECONDS = 100;
-const SAMPLE_RATE = 16000;
-const FRAME_EVERY_S = 3;
-const MAX_FRAMES = 40;
-const FRAME_BATCH = 6;
-const FRAME_BATCH_BYTES = 3.5 * 1000 * 1000;
-const DECODE_HELP = "Your browser cannot decode this file. Please convert it to MP4 (H.264/AAC) and try again.";
+const TRANSCRIPT_EXT = /\.(vtt|srt|txt)$/i;
+const TYPE = {
+  notes: { icon: "notes", label: "Notes" }, transcript: { icon: "mic", label: "Interview transcript" },
+  interview: { icon: "mic", label: "Interview recording" }, screen: { icon: "video", label: "Screen recording" },
+};
+const handlers = { go: (n) => goStep(n), regenerate: (b) => regenerate(b), reset: () => startOver() };
 
-let state = freshState();
+// ---------- navigation ----------
+const canReach = (n) => n === 1 || (n === 2 && readySources().length > 0) || (n >= 3 && !!state.sop);
 
-function freshState() {
-  return { sources: [], nextIndex: 1, titleHint: "", sop: null, report: null, answers: {}, reviewer: "" };
+function goStep(n, { focus = true } = {}) {
+  if (!canReach(n)) return;
+  transition(() => {
+    state.started = true;
+    state.step = n;
+    renderChrome();
+    window.scrollTo({ top: 0 });
+  });
+  save();
+  if (focus) setTimeout(() => $(`[data-panel="${n}"] h2`)?.focus({ preventScroll: true }), 50);
 }
 
-// ---------- helpers ----------
-const $ = (id) => document.getElementById(id);
-
-function el(tag, attrs, ...children) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (k === "class") node.className = v;
-    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
-    else if (v !== false && v != null) node.setAttribute(k, v === true ? "" : v);
+function renderChrome() {
+  $("#hero").hidden = state.started;
+  $("#app").hidden = !state.started;
+  $("#stepper").hidden = !state.started;
+  for (const btn of $$("#stepper button")) {
+    const n = +btn.dataset.step, li = btn.parentElement;
+    btn.disabled = !canReach(n);
+    li.classList.toggle("current", n === state.step);
+    li.classList.toggle("done", n < state.step && canReach(n + 1));
+    btn.setAttribute("aria-current", n === state.step ? "step" : "false");
   }
-  for (const c of children.flat()) {
-    if (c == null || c === false) continue;
-    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  for (const p of $$("[data-panel]")) p.hidden = +p.dataset.panel !== state.step;
+  $$("[data-panel] h2").forEach((h) => h.setAttribute("tabindex", "-1"));
+  renderSources();
+  renderGenerate();
+  renderReview($("#review"), handlers);
+  renderExport($("#export"), handlers);
+}
+
+// ---------- step 1: sources ----------
+function setTab(name, focus) {
+  state.tab = name;
+  for (const t of $$('[role="tab"]')) {
+    const on = t.id === "tab-" + name;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+    if (on && focus) t.focus();
   }
-  return node;
+  for (const p of $$('[role="tabpanel"]')) p.hidden = p.id !== "tp-" + name;
+  $("#consent-box").hidden = name === "notes";
+  save();
 }
 
-function fmtTime(s) {
-  if (s == null) return "";
-  s = Math.floor(s);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return (h ? h + ":" : "") + String(m).padStart(h ? 2 : 1, "0") + ":" + String(sec).padStart(2, "0");
+function addSource(src) {
+  const s = Object.assign({ index: state.nextIndex, segments: [], speakers: {}, interviewer: "", thumbs: {}, status: "processing", stage: "Starting…", done: 0, total: 0 }, src);
+  state.nextIndex += 1;
+  state.sources.push(s);
+  emit();
+  return s;
 }
 
-function setText(id, text) { $(id).textContent = text || ""; }
+function removeSource(src) {
+  src.ctrl?.abort();
+  state.sources = state.sources.filter((s) => s !== src);
+  emit();
+}
 
-async function api(path, options) {
-  let resp;
+function progress(src, stage, done, total) {
+  Object.assign(src, { stage, done, total });
+  renderSources();
+}
+
+function failSource(src, err) {
+  if (err?.name === "AbortError") { removeSource(src); toast("Upload cancelled"); return; }
+  if (src.segments.length) { src.status = "ready"; toast(`${src.name}: stopped early — ${err.message}`, { type: "error", timeout: 8000 }); }
+  else { src.status = "error"; src.error = err.message; }
+  emit();
+}
+
+function finish(src, emptyMsg) {
+  if (!src.segments.length) throw new Error(emptyMsg);
+  src.status = "ready";
+  src.ctrl = null;
+  emit();
+  toast(`${src.name} added — ${src.segments.length} ${src.segments.length === 1 ? "line" : "lines"}`);
+}
+
+async function addNotes({ file, text, name }) {
+  const src = addSource({ name: name || file?.name || "Pasted notes", type: "notes", size: file?.size || text.length, stage: "Reading notes…" });
   try {
-    resp = await fetch(path, options);
-  } catch (e) {
-    throw new Error("Network error: could not reach the server.");
-  }
-  if (resp.ok) return resp;
-  let data = {};
-  try { data = await resp.json(); } catch (e) { /* not JSON */ }
-  if (data.error === "daily_free_limit") throw new Error("Free AI limit reached, try again later.");
-  throw new Error(data.message || data.error || `Request failed (${resp.status}).`);
+    const form = { source_index: src.index, kind: "notes" };
+    if (file) form.file = { blob: file, name: file.name }; else form.text = text;
+    src.segments = (await request("/api/notes", { form })).segments;
+    finish(src, "No text was found.");
+    return src;
+  } catch (e) { failSource(src, e); }
 }
 
-async function postForm(path, fields) {
-  const fd = new FormData();
-  for (const [k, v] of Object.entries(fields)) {
-    if (Array.isArray(v)) v.forEach((item) => fd.append(k, item.blob, item.name));
-    else if (v && v.blob) fd.append(k, v.blob, v.name);
-    else fd.append(k, v);
-  }
-  return (await api(path, { method: "POST", body: fd })).json();
-}
-
-function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
-}
-
-function load() {
+async function addTranscript(file) {
+  const src = addSource({ name: file.name, type: "transcript", size: file.size, stage: "Reading transcript…" });
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) state = Object.assign(freshState(), JSON.parse(raw));
-  } catch (e) { /* ignore */ }
+    const data = await request("/api/notes", { form: { source_index: src.index, kind: "transcript", file: { blob: file, name: file.name } } });
+    src.segments = data.segments;
+    src.speakers = data.speakers;
+    finish(src, "No speech turns were found.");
+  } catch (e) { failSource(src, e); }
 }
 
 function requireConsent() {
-  if (!$("consent").checked) throw new Error("Please tick the consent box before uploading audio or video.");
+  if ($("#consent").checked) return true;
+  toast("Tick the consent box first — audio goes to a free AI service (Groq).", { type: "error" });
+  $("#consent").focus();
+  return false;
 }
 
-function allSegments() {
-  return state.sources.flatMap((s) => s.segments);
+async function transcribe(src, file, kind, label) {
+  progress(src, `${label} · extracting audio`, 0, 0);
+  const chunks = audioChunks(await decodeTo16kMono(file, src.ctrl.signal));
+  for (let i = 0; i < chunks.length; i++) {
+    progress(src, `${label} · transcribing ${i + 1}/${chunks.length} parts`, i, chunks.length);
+    const data = await request("/api/transcribe", { signal: src.ctrl.signal, form: {
+      chunk: { blob: encodeWav(chunks[i].part), name: `part${i}.wav` }, offset_s: chunks[i].offset,
+      source_index: src.index, seq_start: src.segments.length + 1, kind, consent: "true" } });
+    src.segments.push(...data.segments);
+  }
 }
 
-// ---------- sources ----------
-function addSource(name, type, segments, speakers) {
-  const src = { index: state.nextIndex, name, type, segments, speakers: speakers || {}, interviewer: "" };
-  state.nextIndex += 1;
-  state.sources.push(src);
-  renderSources();
-  save();
-  return src;
+async function addInterviewMedia(file) {
+  if (!requireConsent()) return;
+  const src = addSource({ name: file.name, type: "interview", size: file.size, ctrl: new AbortController() });
+  try {
+    src.duration = await checkMedia(file);
+    await transcribe(src, file, "transcript_turn", "Interview");
+    finish(src, "No speech was found in this recording.");
+  } catch (e) { failSource(src, e); }
+}
+
+async function addScreen(file) {
+  if (!requireConsent()) return;
+  const src = addSource({ name: file.name, type: "screen", size: file.size, ctrl: new AbortController() });
+  let note = "";
+  try {
+    src.duration = await checkMedia(file);
+    try { await transcribe(src, file, "narration", "Narration"); } catch (e) {
+      if (e.name === "AbortError" || e.code === "daily_free_limit") throw e;
+      note = "No narration found; using the screen only.";
+    }
+    const frames = await extractFrames(file, { signal: src.ctrl.signal, onProgress: (i, n, kept) => progress(src, `Capturing screen · ${i}/${n} moments (${kept} kept)`, i, n) });
+    progress(src, "Loading screen reader…", 0, 0);
+    const { readFrames } = await import("./ocr.js");
+    const items = await readFrames(frames, { lang: $("#ocr-lang")?.value || "eng", signal: src.ctrl.signal,
+      onProgress: (i, n) => progress(src, `Reading screen · ${i}/${n}`, i - 1, n) });
+    if (items.length) {
+      const data = await request("/api/frames", { signal: src.ctrl.signal, json: {
+        source_index: src.index, seq_start: src.segments.length + 1, items } });
+      for (const seg of data.segments) {
+        const f = frames.find((x) => x.t === seg.start_s);
+        if (f) src.thumbs[seg.id] = f.thumb;
+      }
+      src.segments.push(...data.segments);
+    }
+    finish(src, "Nothing readable was found in this recording.");
+    if (note) toast(note);
+  } catch (e) { failSource(src, e); }
+}
+
+function handleFiles(kind, files) {
+  const file = files?.[0];
+  if (!file) return;
+  if (kind === "notes") addNotes({ file });
+  else if (kind === "interview") TRANSCRIPT_EXT.test(file.name) ? addTranscript(file) : addInterviewMedia(file);
+  else addScreen(file);
 }
 
 function setInterviewer(src, name) {
   src.interviewer = name;
-  for (const seg of src.segments) {
-    const sp = src.speakers[seg.id];
-    if (sp) seg.speaker_role = sp === name ? "interviewer" : "staff";
-  }
-  renderSources();
-  save();
+  for (const seg of src.segments) if (src.speakers[seg.id]) seg.speaker_role = src.speakers[seg.id] === name ? "interviewer" : "staff";
+  emit();
 }
 
 function toggleRole(seg) {
   seg.speaker_role = seg.speaker_role === "interviewer" ? (seg.kind === "narration" ? "narrator" : "staff") : "interviewer";
-  renderSources();
-  save();
+  emit();
+}
+
+const ROLE_LABEL = { staff: "Staff", interviewer: "Interviewer", narrator: "Narrator", system: "On screen", reviewer: "Reviewer" };
+
+function openPreview(src) {
+  $("#prev-title").textContent = src.name;
+  const body = $("#preview-body");
+  const draw = () => body.replaceChildren(...src.segments.map((seg) => {
+    const toggle = ["transcript_turn", "narration"].includes(seg.kind);
+    const role = toggle
+      ? el("button", { type: "button", class: "role " + seg.speaker_role, title: "Switch between staff and interviewer", onclick: () => { toggleRole(seg); draw(); } }, ROLE_LABEL[seg.speaker_role])
+      : el("span", { class: "role " + seg.speaker_role }, ROLE_LABEL[seg.speaker_role]);
+    return el("div", { class: "tl-item" },
+      el("span", { class: "mono tl-time" }, seg.start_s != null ? fmtTime(seg.start_s) : "—"),
+      el("div", {}, role, src.speakers[seg.id] ? el("b", {}, src.speakers[seg.id] + ": ") : null, seg.text),
+      src.thumbs?.[seg.id] ? el("img", { src: src.thumbs[seg.id], alt: `Screen at ${fmtTime(seg.start_s)}` }) : null);
+  }));
+  draw();
+  openDialog("dlg-preview");
+}
+
+function sourceCard(src) {
+  const t = TYPE[src.type];
+  const names = [...new Set(Object.values(src.speakers || {}))];
+  const meta = [t.label, fmtSize(src.size), src.duration ? fmtTime(src.duration) : ""].filter(Boolean);
+  const pct = src.total ? Math.round((src.done / src.total) * 100) : 0;
+  return el("li", { class: "src " + src.status },
+    el("div", { class: "src-top" },
+      el("span", { class: "src-ic" }, icon(t.icon)),
+      el("div", { class: "src-main" },
+        el("div", { class: "src-name", title: src.name }, src.name),
+        el("div", { class: "src-meta" }, meta.map((m, i) => el("span", { class: i ? "mono" : "" }, m)))),
+      el("button", { type: "button", class: "btn ghost sm icon-only", "aria-label": (src.status === "processing" ? "Cancel " : "Remove ") + src.name, onclick: () => removeSource(src) }, icon(src.status === "processing" ? "x" : "trash"))),
+    src.status === "processing" ? [
+      el("div", { class: "progress" + (src.total ? "" : " indet"), role: "progressbar", "aria-label": src.stage, "aria-valuenow": src.total ? pct : null, "aria-valuemin": 0, "aria-valuemax": 100 }, el("i", { style: `--p:${Math.max(4, pct)}%` })),
+      el("div", { class: "stage" }, src.stage)] : null,
+    src.status === "error" ? el("p", { class: "src-err", role: "alert" }, src.error) : null,
+    src.status === "ready" ? el("div", { class: "src-actions" },
+      el("span", { class: "ok-tick small" }, icon("check"), `${src.segments.length} ${src.segments.length === 1 ? "line" : "lines"}`),
+      el("button", { type: "button", class: "btn ghost sm", onclick: () => openPreview(src) }, icon("eye"), "Preview"),
+      names.length ? el("label", { class: "small" }, el("span", { class: "sr-only" }, "Who is the interviewer?"),
+        el("select", { "aria-label": "Who is the interviewer?", onchange: (e) => setInterviewer(src, e.target.value) },
+          el("option", { value: "" }, "Who is the interviewer?"),
+          names.map((n) => el("option", { value: n, selected: n === src.interviewer }, n)))) : null) : null);
 }
 
 function renderSources() {
-  const list = $("source-list");
-  list.innerHTML = "";
-  if (!state.sources.length) {
-    list.append(el("li", { class: "muted" }, "No sources yet."));
-    return;
-  }
-  for (const src of state.sources) {
-    const names = [...new Set(Object.values(src.speakers))];
-    const segRows = src.segments.map((seg) => {
-      const toggle = ["transcript_turn", "narration"].includes(seg.kind)
-        ? el("button", { class: "link", onclick: () => toggleRole(seg) }, seg.speaker_role)
-        : el("span", { class: "muted" }, seg.speaker_role);
-      const sp = src.speakers[seg.id] ? src.speakers[seg.id] + ": " : "";
-      return el("div", {}, el("span", { class: "muted" }, `${seg.id} ${fmtTime(seg.start_s)} `), toggle, " ", sp + seg.text);
-    });
-    list.append(el("li", {},
-      el("div", { class: "row" },
-        el("strong", {}, `#${src.index} ${src.name}`),
-        el("span", { class: "muted" }, ` — ${src.type}, ${src.segments.length} segments`),
-        el("button", { class: "link", onclick: () => removeSource(src.index) }, "Remove")),
-      names.length ? el("label", {}, "Interviewer: ",
-        el("select", { onchange: (e) => setInterviewer(src, e.target.value) },
-          el("option", { value: "" }, "(none)"),
-          names.map((n) => el("option", { value: n, selected: n === src.interviewer }, n)))) : null,
-      el("details", {}, el("summary", {}, "Show segments"), el("div", { class: "seglist" }, segRows))));
-  }
+  const list = $("#source-list");
+  list.replaceChildren(...state.sources.map(sourceCard));
+  const ready = readySources().length;
+  $("#sources-empty").hidden = state.sources.length > 0;
+  $("#sources-count").textContent = state.sources.length;
+  $("#to-step2").disabled = !ready;
+  $("#p1-hint").textContent = ready ? `${ready} source${ready > 1 ? "s" : ""} ready` : state.sources.length ? "Waiting for your sources to finish…" : "Add at least one source to continue.";
 }
 
-function removeSource(index) {
-  state.sources = state.sources.filter((s) => s.index !== index);
-  renderSources();
-  save();
+// ---------- step 2: generate ----------
+function renderGenerate() {
+  $("#title-hint").value = state.title || "";
+  $("#gen-sources").replaceChildren(...readySources().map((s) => el("span", { class: "chip" }, icon(TYPE[s.type].icon), s.name)));
 }
 
-async function withBusy(button, errorId, fn) {
-  setText(errorId, "");
-  button.disabled = true;
+const STAGE_MS = [500, 0, 0, 0];
+async function generate(button) {
+  if (!readySources().length) { goStep(1); return; }
+  state.title = $("#title-hint").value.trim();
+  const payload = { title_hint: state.title, segments: allSegments(), answers: committedAnswers() };
+  if (JSON.stringify(payload).length > 4e6) { showGenError({ code: "too_large", message: "There's too much source material (over 4 MB). Remove a source and try again." }); return; }
+  $("#gen-error").replaceChildren();
+  const stages = $$("#stages li");
+  stages.forEach((li) => li.className = "");
+  $("#gen-progress").hidden = false;
+  stages[0].className = "active";
+  const t1 = setTimeout(() => { stages[0].className = "done"; stages[1].className = "active"; }, STAGE_MS[0]);
+  const t2 = setTimeout(() => { stages[1].className = "done"; stages[2].className = "active"; }, 9000);
   try {
-    await fn();
-  } catch (e) {
-    setText(errorId, e.message || String(e));
-  } finally {
-    button.disabled = false;
-    setText("progress", "");
-  }
-}
-
-async function addNotes() {
-  const file = $("notes-file").files[0];
-  const text = $("notes-text").value;
-  if (!file && !text.trim()) throw new Error("Paste some notes or choose a file.");
-  const fields = { source_index: state.nextIndex, kind: "notes" };
-  if (file) fields.file = { blob: file, name: file.name }; else fields.text = text;
-  const data = await postForm("/api/notes", fields);
-  addSource(file ? file.name : "Pasted notes", "notes", data.segments);
-  $("notes-text").value = "";
-  $("notes-file").value = "";
-}
-
-async function addTranscript() {
-  const file = $("transcript-file").files[0];
-  if (!file) throw new Error("Choose a transcript file.");
-  const data = await postForm("/api/notes", { source_index: state.nextIndex, kind: "transcript", file: { blob: file, name: file.name } });
-  addSource(file.name, "interview transcript", data.segments, data.speakers);
-  $("transcript-file").value = "";
-}
-
-// ---------- media ----------
-function mediaDuration(file) {
-  return new Promise((resolve, reject) => {
-    const isVideo = file.type.startsWith("video") || /\.(mp4|mov|webm)$/i.test(file.name);
-    const m = document.createElement(isVideo ? "video" : "audio");
-    const url = URL.createObjectURL(file);
-    m.preload = "metadata";
-    m.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(m.duration); };
-    m.onerror = () => { URL.revokeObjectURL(url); reject(new Error(DECODE_HELP)); };
-    m.src = url;
-  });
-}
-
-async function checkMedia(file) {
-  if (file.size > MAX_MEDIA_BYTES) throw new Error("File is larger than 200 MB.");
-  const duration = await mediaDuration(file);
-  if (isFinite(duration) && duration > MAX_MEDIA_SECONDS) throw new Error("Recording is longer than 30 minutes.");
-  return duration;
-}
-
-async function decodeTo16kMono(file) {
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  if (!Ctx || !window.OfflineAudioContext) throw new Error("This browser cannot process audio. Try Chrome, Edge or Firefox.");
-  const ctx = new Ctx();
-  let audio;
-  try {
-    audio = await ctx.decodeAudioData(await file.arrayBuffer());
-  } catch (e) {
-    throw new Error(DECODE_HELP);
-  } finally {
-    ctx.close();
-  }
-  const length = Math.max(1, Math.ceil(audio.duration * SAMPLE_RATE));
-  const off = new OfflineAudioContext(1, length, SAMPLE_RATE);
-  const src = off.createBufferSource();
-  src.buffer = audio;
-  src.connect(off.destination);
-  src.start();
-  const rendered = await off.startRendering();
-  return rendered.getChannelData(0);
-}
-
-function encodeWav(samples) {
-  const buf = new ArrayBuffer(44 + samples.length * 2);
-  const v = new DataView(buf);
-  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  str(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); str(8, "WAVE");
-  str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, SAMPLE_RATE, true); v.setUint32(28, SAMPLE_RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  str(36, "data"); v.setUint32(40, samples.length * 2, true);
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return new Blob([buf], { type: "audio/wav" });
-}
-
-function rms(samples) {
-  let sum = 0;
-  for (let i = 0; i < samples.length; i += 4) sum += samples[i] * samples[i];
-  return Math.sqrt(sum / Math.max(1, samples.length / 4));
-}
-
-// Transcribe audio of `file` into `src` (segments appended). Returns number of segments added.
-async function transcribeInto(src, file, kind, label) {
-  setText("progress", `${label}: decoding audio…`);
-  const samples = await decodeTo16kMono(file);
-  const per = CHUNK_SECONDS * SAMPLE_RATE;
-  const chunks = Math.ceil(samples.length / per);
-  let added = 0;
-  for (let i = 0; i < chunks; i++) {
-    const part = samples.subarray(i * per, Math.min(samples.length, (i + 1) * per));
-    if (rms(part) < 0.003) continue; // silence: skip so the speech model does not hallucinate
-    setText("progress", `${label}: transcribing chunk ${i + 1} of ${chunks}…`);
-    const data = await postForm("/api/transcribe", {
-      chunk: { blob: encodeWav(part), name: `chunk${i}.wav` }, offset_s: i * CHUNK_SECONDS,
-      source_index: src.index, seq_start: src.segments.length + 1, kind, consent: "true",
-    });
-    src.segments.push(...data.segments);
-    added += data.segments.length;
-    renderSources();
-    save();
-  }
-  return added;
-}
-
-async function addInterviewMedia() {
-  requireConsent();
-  const file = $("interview-media").files[0];
-  if (!file) throw new Error("Choose an audio or video file.");
-  await checkMedia(file);
-  const src = addSource(file.name, "interview recording", []);
-  try {
-    const n = await transcribeInto(src, file, "transcript_turn", "Interview");
-    if (!n) throw new Error("No speech was found in this recording.");
-  } catch (e) {
-    if (!src.segments.length) removeSource(src.index);
-    throw e;
-  }
-  $("interview-media").value = "";
-}
-
-function loadVideo(file) {
-  return new Promise((resolve, reject) => {
-    const v = document.createElement("video");
-    v.muted = true;
-    v.preload = "auto";
-    v.playsInline = true;
-    v.onloadeddata = () => (v.videoWidth ? resolve(v) : reject(new Error(DECODE_HELP)));
-    v.onerror = () => reject(new Error(DECODE_HELP));
-    v.src = URL.createObjectURL(file);
-  });
-}
-
-function seek(video, t) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => done(), 4000);
-    const done = () => { clearTimeout(timer); video.removeEventListener("seeked", done); resolve(); };
-    video.addEventListener("seeked", done);
-    video.currentTime = t;
-  });
-}
-
-function toBlob(canvas, quality) {
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-}
-
-async function extractFrames(file) {
-  const video = await loadVideo(file);
-  const duration = video.duration;
-  const scale = Math.min(1, 1280 / video.videoWidth);
-  const canvas = Object.assign(document.createElement("canvas"), { width: Math.round(video.videoWidth * scale), height: Math.round(video.videoHeight * scale) });
-  const thumb = Object.assign(document.createElement("canvas"), { width: 32, height: 32 });
-  const ctx = canvas.getContext("2d");
-  const tctx = thumb.getContext("2d", { willReadFrequently: true });
-  const frames = [];
-  let prev = null;
-  try {
-    for (let t = 0; t < duration && frames.length < MAX_FRAMES; t += FRAME_EVERY_S) {
-      setText("progress", `Screen: reading frame at ${fmtTime(t)} (${frames.length} kept)…`);
-      await seek(video, t);
-      tctx.drawImage(video, 0, 0, 32, 32);
-      const px = tctx.getImageData(0, 0, 32, 32).data;
-      if (prev) {
-        let diff = 0;
-        for (let i = 0; i < px.length; i += 4) diff += Math.abs(px[i] - prev[i]) + Math.abs(px[i + 1] - prev[i + 1]) + Math.abs(px[i + 2] - prev[i + 2]);
-        if (diff / (32 * 32 * 3) < 3) continue; // near-identical to the last kept frame
-      }
-      prev = px;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      let blob = await toBlob(canvas, 0.8);
-      if (blob.size > 1_000_000) blob = await toBlob(canvas, 0.6);
-      frames.push({ t: Math.round(t * 10) / 10, blob });
-    }
-  } finally {
-    URL.revokeObjectURL(video.src);
-  }
-  return frames;
-}
-
-async function addScreen() {
-  requireConsent();
-  const file = $("screen-file").files[0];
-  if (!file) throw new Error("Choose a screen recording.");
-  await checkMedia(file);
-  const src = addSource(file.name, "screen recording", []);
-  const notes = [];
-  try {
-    try {
-      await transcribeInto(src, file, "narration", "Narration");
-    } catch (e) {
-      if (/Free AI limit/.test(e.message)) throw e;
-      notes.push("No narration transcribed (" + e.message + ")");
-    }
-    const frames = await extractFrames(file);
-    const batches = [];
-    let cur = [], size = 0;
-    for (const f of frames) {
-      if (cur.length >= FRAME_BATCH || size + f.blob.size > FRAME_BATCH_BYTES) { batches.push(cur); cur = []; size = 0; }
-      cur.push(f); size += f.blob.size;
-    }
-    if (cur.length) batches.push(cur);
-    for (let b = 0; b < batches.length; b++) {
-      setText("progress", `Screen: reading text from screenshots, batch ${b + 1} of ${batches.length}…`);
-      const batch = batches[b];
-      const data = await postForm("/api/frames", {
-        frames: batch.map((f, i) => ({ blob: f.blob, name: `frame${i}.jpg` })), times: JSON.stringify(batch.map((f) => f.t)),
-        source_index: src.index, seq_start: src.segments.length + 1, consent: "true",
-      });
-      src.segments.push(...data.segments);
-      renderSources();
-      save();
-    }
-    if (!src.segments.length) throw new Error("Nothing readable was found in this recording.");
-  } catch (e) {
-    if (!src.segments.length) removeSource(src.index);
-    throw e;
-  }
-  if (notes.length) setText("sources-error", notes.join("\n"));
-  $("screen-file").value = "";
-}
-
-// ---------- generate & review ----------
-function answerPayload() {
-  const out = [];
-  for (const q of (state.sop ? state.sop.questions : [])) {
-    const a = state.answers[q.id];
-    if (!a) continue;
-    const text = a.na ? `Not applicable: ${a.reason || "no reason given"}` : (a.answer || "").trim();
-    if (text) out.push({ question_id: q.id, question: q.question, answer: text });
-  }
-  return out;
-}
-
-async function generate() {
-  const segments = allSegments();
-  if (!segments.length) throw new Error("Add at least one source first.");
-  state.titleHint = $("title-hint").value;
-  const body = JSON.stringify({ title_hint: state.titleHint, segments, answers: answerPayload() });
-  if (body.length > 4_000_000) throw new Error("Too much source material (max 4 MB). Remove a source and try again.");
-  setText("generate-status", "Generating… this can take up to a minute.");
-  try {
-    const data = await (await api("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body })).json();
+    const data = await busy(button, () => request("/api/generate", { json: payload }));
+    clearTimeout(t1); clearTimeout(t2);
+    stages.forEach((li) => li.className = "done");
     const old = state.answers;
     state.sop = data.sop;
     state.report = data.report;
+    if (data.report?.notes?.length) toast(data.report.notes[0]);
+    state.version += 1;
     state.answers = {};
-    // keep answers whose question text survived regeneration
     for (const q of state.sop.questions) {
       const prev = Object.values(old).find((a) => a.question === q.question);
       if (prev) state.answers[q.id] = prev;
     }
-    renderReview();
-    save();
-    setText("generate-status", `Done (model: ${data.report.model}).`);
+    state.drafts = {};
+    state.edited = {};
+    state.filter = "all";
+    state.genSig = answersSig();
+    await new Promise((r) => setTimeout(r, 300));
+    $("#gen-progress").hidden = true;
+    goStep(3);
+    toast(`Draft ready — ${state.sop.steps.length} steps, ${state.sop.questions.length} questions`);
   } catch (e) {
-    setText("generate-status", "");
-    throw e;
+    clearTimeout(t1); clearTimeout(t2);
+    $("#gen-progress").hidden = true;
+    showGenError(e);
   }
 }
 
-const STATUS_TEXT = { supported: "supported", inferred: "inferred", needs_confirmation: "needs confirmation" };
-const badge = (status) => el("span", { class: "badge " + status }, STATUS_TEXT[status] || status);
-
-function refsView(refs) {
-  const segs = Object.fromEntries(allSegments().map((s) => [s.id, s]));
-  if (!refs.length) return el("div", { class: "refs muted" }, "No source quotes.");
-  return el("ul", { class: "refs" }, refs.map((r) => {
-    const s = segs[r.segment_id];
-    const when = s && s.start_s != null ? ` @ ${fmtTime(s.start_s)}` : "";
-    return el("li", {}, `${r.segment_id}${when}: “${r.quote}”`);
-  }));
-}
-
-function stepView(step) {
-  const details = el("div", { class: "hidden" });
-  const textNode = el("span", {}, step.action);
-  const editBox = el("div", { class: "hidden" });
-  const fill = () => {
-    details.innerHTML = "";
-    if (step.actor) details.append(el("div", { class: "muted" }, "Actor: " + step.actor));
-    if (step.expected_result) details.append(el("div", { class: "muted" }, "Expected result: " + step.expected_result));
-    if (step.ui_elements.length) details.append(el("div", { class: "muted" }, "UI: " + step.ui_elements.join(", ")));
-    details.append(refsView(step.source_refs));
+function showGenError(e) {
+  const kinds = {
+    insufficient_source: ["This doesn't look like a procedure yet", "We need at least two actions. Add notes, an interview or a narrated recording that walks through the steps.", "Add more sources", () => goStep(1)],
+    daily_free_limit: ["Free AI limit reached", "Free AI limit reached, try again in a minute. Your work is saved in this browser.", null],
   };
-  const area = el("textarea", { rows: 2 });
-  const confirmed = el("input", { type: "checkbox" });
-  editBox.append(area, el("label", {}, confirmed, " Confirmed by staff"),
-    el("button", { onclick: (e) => {
-      e.stopPropagation();
-      const v = area.value.trim();
-      if (v && v !== step.action) {
-        step.action = v;
-        step.status = confirmed.checked ? "supported" : "needs_confirmation";
-      } else if (confirmed.checked) step.status = "supported";
-      save();
-      renderReview();
-    } }, "Save"),
-    el("button", { onclick: (e) => { e.stopPropagation(); editBox.classList.add("hidden"); } }, "Cancel"));
-  editBox.addEventListener("click", (e) => e.stopPropagation());
-  return el("li", { class: "step", onclick: () => { fill(); details.classList.toggle("hidden"); } },
-    el("strong", {}, `${step.number}. `),
-    step.kind === "decision" ? el("em", {}, `Decision${step.condition ? " – if " + step.condition : ""}: `) : null,
-    step.kind === "verification" ? el("em", {}, "Check: ") : null,
-    textNode, badge(step.status),
-    el("button", { class: "link", onclick: (e) => { e.stopPropagation(); area.value = step.action; confirmed.checked = false; editBox.classList.remove("hidden"); } }, "Edit"),
-    editBox, details);
+  const [title, text, label, action] = kinds[e.code] || ["Generation didn't finish", e.message, "Try again", () => generate($("#generate"))];
+  $("#gen-error").replaceChildren(el("div", { class: "err-card" + (e.code === "daily_free_limit" ? " warn" : ""), role: "alert" },
+    icon("alert"), el("div", {}, el("h3", {}, title), el("p", {}, text), label ? el("button", { type: "button", class: "btn secondary", onclick: action }, icon(e.code === "insufficient_source" ? "back" : "refresh"), label) : null)));
 }
 
-function questionView(q) {
-  const a = state.answers[q.id] || (state.answers[q.id] = { question: q.question, answer: "", na: false, reason: "" });
-  a.question = q.question;
-  const answer = el("textarea", { rows: 2, placeholder: "Answer from staff…" });
-  answer.value = a.answer;
-  answer.addEventListener("input", () => { a.answer = answer.value; save(); });
-  const reason = el("input", { type: "text", placeholder: "Reason it does not apply", class: a.na ? "" : "hidden" });
-  reason.value = a.reason;
-  reason.addEventListener("input", () => { a.reason = reason.value; save(); });
-  const na = el("input", { type: "checkbox", checked: a.na });
-  na.addEventListener("change", () => { a.na = na.checked; reason.classList.toggle("hidden", !na.checked); answer.disabled = na.checked; save(); });
-  answer.disabled = a.na;
-  return el("li", {},
-    el("div", {}, el("strong", {}, q.question), el("span", { class: "badge " + q.severity }, q.severity),
-      el("span", { class: "muted" }, ` ${q.category.replace(/_/g, " ")}`)),
-    el("div", { class: "muted" }, q.reason),
-    answer, el("label", {}, na, " Not applicable"), reason);
+async function regenerate(button) {
+  goStep(2, { focus: false });
+  await generate($("#generate"));
+  button?.blur();
 }
 
-function renderReview() {
-  const box = $("review");
-  box.innerHTML = "";
-  const sop = state.sop;
-  if (!sop) {
-    box.append(el("p", { class: "muted" }, "Generate an SOP to review it here."));
-    return;
-  }
-  const simpleItems = (items, text) => items.length
-    ? el("ul", { class: "list" }, items.map((it) => {
-      const refs = el("div", { class: "hidden" }, refsView(it.source_refs));
-      return el("li", { class: "step", onclick: () => refs.classList.toggle("hidden") }, text(it), badge(it.status), refs);
-    }))
-    : el("p", { class: "muted" }, "None.");
-  const mandatoryOpen = sop.questions.filter((q) => q.severity === "mandatory").length;
-  box.append(
-    el("h3", {}, sop.title),
-    el("p", {}, sop.purpose),
-    el("h3", {}, "Prerequisites"), simpleItems(sop.prerequisites, (p) => p.text),
-    el("h3", {}, "Steps ", el("span", { class: "muted" }, "(click a step for its sources)")),
-    el("ul", { class: "list" }, sop.steps.map(stepView)),
-    el("h3", {}, "Warnings"), simpleItems(sop.warnings, (w) => `${w.severity.toUpperCase()}: ${w.text}`),
-    el("h3", {}, `Questions for staff (${sop.questions.length}, ${mandatoryOpen} mandatory)`),
-    sop.questions.length ? el("ul", { class: "list" }, sop.questions.map(questionView)) : el("p", { class: "muted" }, "No open questions."),
-    el("button", { class: "primary", onclick: (e) => withBusy(e.target, "generate-error", generate) }, "Regenerate with answers"),
-    el("h3", {}, "Review checklist"),
-    el("ul", {}, sop.checklist.map((c) => el("li", {}, "☐ " + c.text))));
-}
-
-// ---------- export & session ----------
-function download(blob, name) {
-  const a = el("a", { href: URL.createObjectURL(blob), download: name });
-  document.body.append(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-}
-
-async function exportDoc(format) {
-  if (!state.sop) throw new Error("Generate an SOP first.");
-  state.reviewer = $("reviewer").value;
-  save();
-  const resp = await api("/api/export", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sop: state.sop, answers: answerPayload(), reviewer_name: state.reviewer, format, segments: allSegments() }),
+// ---------- sample, theme, session ----------
+async function trySample(button) {
+  await busy(button, async () => {
+    try {
+      const sample = await request("/api/sample");
+      state.started = true;
+      renderChrome();
+      const src = await addNotes({ text: sample.text, name: "Sample: refund notes" });
+      if (!src) return;
+      state.title = sample.title;
+      goStep(2, { focus: false });
+      await generate($("#generate"));
+    } catch (e) { toast(e.message, { type: "error" }); }
   });
-  const cd = resp.headers.get("Content-Disposition") || "";
-  const m = cd.match(/filename="([^"]+)"/);
-  download(await resp.blob(), m ? m[1] : `sop.${format}`);
 }
 
-function saveSession() {
-  state.reviewer = $("reviewer").value;
-  state.titleHint = $("title-hint").value;
-  download(new Blob([JSON.stringify(state, null, 1)], { type: "application/json" }), "sop-session.json");
+function effectiveTheme() {
+  return document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+function paintThemeButton() {
+  const dark = effectiveTheme() === "dark", btn = $("#theme-btn");
+  btn.replaceChildren(icon(dark ? "sun" : "moon"));
+  btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+}
+function toggleTheme() {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("sop-theme", next); } catch { /* ignore */ }
+  paintThemeButton();
 }
 
-async function loadSession(file) {
-  const data = JSON.parse(await file.text());
-  if (!data || !Array.isArray(data.sources)) throw new Error("This is not an SOP Builder session file.");
-  state = Object.assign(freshState(), data);
-  renderAll();
-  save();
+async function startOver() {
+  if (!(await confirmDialog("Start a new SOP?", "This clears your sources, the draft and your answers from this browser. Download a session file first if you want to keep them.", "Clear and start over"))) return;
+  state.sources.forEach((s) => s.ctrl?.abort());
+  replace(fresh());
+  clearSaved();
+  renderChrome();
+  window.scrollTo({ top: 0 });
+  toast("Started a new SOP");
 }
 
-function renderAll() {
-  $("title-hint").value = state.titleHint || "";
-  $("reviewer").value = state.reviewer || "";
-  renderSources();
-  renderReview();
+async function loadSessionFile(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    if (!data || !Array.isArray(data.sources)) throw new Error();
+    replace(data);
+    state.started = true;
+    if (!canReach(state.step)) state.step = 1;
+    emit();
+    renderChrome();
+    toast("Session loaded");
+  } catch { toast("That file isn't an SOP Builder session.", { type: "error" }); }
 }
 
 // ---------- wiring ----------
-document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-  document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("hidden", p.id !== "tab-" + tab.dataset.tab));
-}));
-$("add-notes").addEventListener("click", (e) => withBusy(e.target, "sources-error", addNotes));
-$("add-transcript").addEventListener("click", (e) => withBusy(e.target, "sources-error", addTranscript));
-$("add-interview-media").addEventListener("click", (e) => withBusy(e.target, "sources-error", addInterviewMedia));
-$("add-screen").addEventListener("click", (e) => withBusy(e.target, "sources-error", addScreen));
-$("generate").addEventListener("click", (e) => withBusy(e.target, "generate-error", generate));
-$("export-docx").addEventListener("click", (e) => withBusy(e.target, "export-error", () => exportDoc("docx")));
-$("export-md").addEventListener("click", (e) => withBusy(e.target, "export-error", () => exportDoc("md")));
-$("save-session").addEventListener("click", saveSession);
-$("load-session").addEventListener("change", (e) => {
-  const f = e.target.files[0];
-  if (f) loadSession(f).catch((err) => setText("export-error", err.message)).finally(() => { e.target.value = ""; });
-});
-$("clear-session").addEventListener("click", () => {
-  if (!confirm("Remove all sources, the SOP and answers from this browser?")) return;
-  state = freshState();
-  try { localStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
-  renderAll();
-});
-$("title-hint").addEventListener("input", () => { state.titleHint = $("title-hint").value; save(); });
-$("reviewer").addEventListener("input", () => { state.reviewer = $("reviewer").value; save(); });
+function wire() {
+  $("#start-btn").addEventListener("click", () => goStep(1));
+  $("#sample-btn").addEventListener("click", (e) => trySample(e.currentTarget));
+  $("#brand").addEventListener("click", (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#how-btn").addEventListener("click", () => openDialog("dlg-how"));
+  $("#theme-btn").addEventListener("click", toggleTheme);
+  $("#save-session").addEventListener("click", () => { $("#session-menu").hidePopover?.(); saveSession(); });
+  $("#load-session").addEventListener("change", (e) => { $("#session-menu").hidePopover?.(); const f = e.target.files[0]; if (f) loadSessionFile(f); e.target.value = ""; });
+  $$("[data-open]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); openDialog(b.dataset.open); }));
+  $$("#stepper button").forEach((b) => b.addEventListener("click", () => goStep(+b.dataset.step)));
+  $$("[data-go]").forEach((b) => b.addEventListener("click", () => goStep(+b.dataset.go)));
+  $("#to-step2").addEventListener("click", () => goStep(2));
+  $("#generate").addEventListener("click", (e) => generate(e.currentTarget));
+  $("#title-hint").addEventListener("input", (e) => { state.title = e.target.value; save(); });
 
-load();
-renderAll();
+  const tabs = $$('[role="tab"]');
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => setTab(t.id.slice(4)));
+    t.addEventListener("keydown", (e) => {
+      const d = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (d) { e.preventDefault(); setTab(tabs[(i + d + tabs.length) % tabs.length].id.slice(4), true); }
+    });
+  });
+
+  const notes = $("#notes-text");
+  notes.addEventListener("input", () => { $("#notes-count").textContent = `${notes.value.length.toLocaleString()} characters`; });
+  $("#add-notes").addEventListener("click", () => {
+    const text = notes.value.trim();
+    if (!text) { toast("Paste some notes or drop a file first.", { type: "error" }); notes.focus(); return; }
+    addNotes({ text }).then((s) => { if (s) { notes.value = ""; notes.dispatchEvent(new Event("input")); } });
+  });
+
+  for (const zone of $$(".drop")) {
+    const kind = zone.dataset.kind, input = $("input", zone);
+    input.addEventListener("change", () => { handleFiles(kind, input.files); input.value = ""; });
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+    zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("over"); handleFiles(kind, e.dataTransfer.files); });
+  }
+
+  document.addEventListener("paste", (e) => {
+    if (state.step !== 1 || !state.started || e.target.closest("input, textarea")) return;
+    const files = e.clipboardData?.files;
+    if (files?.length) { e.preventDefault(); handleFiles(state.tab, files); return; }
+    const text = e.clipboardData?.getData("text");
+    if (text && state.tab === "notes") { e.preventDefault(); notes.value += text; notes.dispatchEvent(new Event("input")); notes.focus(); }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target.closest("input, textarea, select, [contenteditable]");
+    if (e.key === "/" && !typing && !document.querySelector("dialog[open]")) {
+      e.preventDefault();
+      if (!state.started) state.started = true;
+      if (state.step !== 1) goStep(1, { focus: false }); else renderChrome();
+      setTab("notes");
+      setTimeout(() => notes.focus(), 60);
+    }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && readySources().length && !$("#generate").classList.contains("loading")) {
+      e.preventDefault();
+      if (state.step !== 2) goStep(2, { focus: false });
+      generate($("#generate"));
+    }
+  });
+
+  bus.addEventListener("change", renderChrome);
+  bus.addEventListener("review", renderChrome);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", paintThemeButton);
+}
+
+function reveal() {
+  const items = $$(".reveal");
+  if (!("IntersectionObserver" in window) || matchMedia("(prefers-reduced-motion: reduce)").matches) { items.forEach((i) => i.classList.add("in")); return; }
+  const io = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } }), { rootMargin: "0px 0px -40px 0px" });
+  items.forEach((i) => io.observe(i));
+}
+
+function init() {
+  wire();
+  paintThemeButton();
+  const saved = loadSaved();
+  if (saved && (saved.sources?.length || saved.sop)) {
+    replace(saved);
+    toast("Restored your previous session", { action: "Undo", timeout: 8000, onAction: () => { replace(fresh()); clearSaved(); renderChrome(); } });
+  }
+  if (!canReach(state.step)) state.step = 1;
+  setTab(state.tab || "notes");
+  renderChrome();
+  reveal();
+}
+
+init();

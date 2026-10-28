@@ -52,37 +52,39 @@ def test_transcribe_offsets_timestamps(client):
 
 def test_media_requires_consent(client):
     app.dependency_overrides[ai.get_asr] = lambda: ai.FakeASR([])
-    app.dependency_overrides[ai.get_vision] = lambda: ai.FakeVision(["x"])
     r = client.post("/api/transcribe", data={"source_index": "1"},
                     files={"chunk": ("c.wav", make_wav(1), "audio/wav")})
     assert r.status_code == 400 and r.json()["error"] == "consent_required"
-    r = client.post("/api/frames", data={"source_index": "1", "times": "[0]", "consent": "false"},
-                    files=[("frames", ("f.jpg", JPEG, "image/jpeg"))])
+    r = client.post("/api/transcribe", data={"source_index": "1", "consent": "false"},
+                    files={"chunk": ("c.wav", make_wav(1), "audio/wav")})
     assert r.status_code == 400 and r.json()["error"] == "consent_required"
 
 
 def test_frames_batch_limit_and_screen_text_segments(client):
-    app.dependency_overrides[ai.get_vision] = lambda: ai.FakeVision(["Orders > Refund", ""])
-    files = [("frames", (f"f{i}.jpg", JPEG, "image/jpeg")) for i in range(7)]
-    r = client.post("/api/frames", data={"source_index": "5", "times": "[0,3,6,9,12,15,18]", "consent": "true"},
-                    files=files)
-    assert r.status_code == 400 and r.json()["error"] == "too_many_frames"
+    """Screen text is OCR'd in the browser; the server only redacts it and builds segments (no images)."""
+    item = {"text": "Orders > Refund", "t": 0, "confidence": 91}
+    r = client.post("/api/frames", json={"source_index": 5, "items": [item] * 41})
+    assert r.status_code == 422  # more items than the browser's 40-keyframe cap
 
-    r = client.post("/api/frames", data={"source_index": "5", "seq_start": "3", "times": "[0, 3, 6]",
-                                         "consent": "true"}, files=files[:3])
+    items = [
+        {"text": "Orders  >  Refund\n\nIssue refund", "t": 0, "confidence": 91.5},
+        {"text": "blurry", "t": 3, "confidence": 42},       # low confidence -> dropped
+        {"text": " ok ", "t": 6, "confidence": 99},         # < 3 characters -> dropped
+        {"text": "Contact jane@example.com", "t": 9, "confidence": 80},
+    ]
+    r = client.post("/api/frames", json={"source_index": 5, "seq_start": 3, "items": items})
     assert r.status_code == 200
     segs = r.json()["segments"]
-    assert [s["id"] for s in segs] == ["S5-0003", "S5-0004"]  # empty frame text skipped
+    assert [s["id"] for s in segs] == ["S5-0003", "S5-0004"]
     assert all(s["kind"] == "screen_text" and s["speaker_role"] == "system" for s in segs)
-    assert [s["start_s"] for s in segs] == [0.0, 6.0]
+    assert [s["start_s"] for s in segs] == [0.0, 9.0]
+    assert segs[0]["text"] == "Orders > Refund\nIssue refund" and segs[0]["confidence"] == 0.915
+    assert "jane@example.com" not in segs[1]["text"] and "[EMAIL]" in segs[1]["text"]
 
-    r = client.post("/api/frames", data={"source_index": "5", "times": "[0]", "consent": "true"},
-                    files=[("frames", ("f.jpg", b"GIF89a....", "image/gif"))])
-    assert r.status_code == 400
-    r = client.post("/api/frames", data={"source_index": "5", "times": "oops", "consent": "true"},
-                    files=files[:1])
-    assert r.status_code == 400
-    big = b"\xff\xd8\xff" + b"\x00" * 1_300_000
-    r = client.post("/api/frames", data={"source_index": "5", "times": "[0,1,2]", "consent": "true"},
-                    files=[("frames", (f"b{i}.jpg", big, "image/jpeg")) for i in range(3)])
-    assert r.status_code == 413
+    # images / multipart uploads are no longer accepted
+    r = client.post("/api/frames", data={"source_index": "5"}, files=[("frames", ("f.jpg", JPEG, "image/jpeg"))])
+    assert r.status_code == 422
+    r = client.post("/api/frames", json={"source_index": 5, "items": [{**item, "image": "data:..."}]})
+    assert r.status_code == 422
+    r = client.post("/api/frames", json={"source_index": 5, "items": [{**item, "confidence": 150}]})
+    assert r.status_code == 422

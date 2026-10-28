@@ -24,7 +24,7 @@ def test_generate_valid_sop(client, use_llm, segments, sop):
     assert [s["status"] for s in body["sop"]["steps"]] == ["supported"] * 5
     assert body["sop"]["questions"] == []
     assert [c["text"] for c in body["sop"]["checklist"]][-1] == "Approved by an authorised person"
-    assert body["report"]["model"] == "fake-llm" and body["report"]["prompt_version"] == "v1"
+    assert body["report"]["model"] == "fake-llm" and body["report"]["prompt_version"] == "v2"
     assert body["report"]["detector_hits"] == [] and len(fake.calls) == 1
 
 
@@ -228,7 +228,7 @@ def test_provider_429_maps_to_daily_free_limit(client, use_llm, segments):
     use_llm(ai.OpenAICompatLLM(_Raising(Err("Too many")), "m"))
     r = post(client, segments)
     assert r.status_code == 429 and r.json() == {"error": "daily_free_limit",
-                                                  "message": "Free AI limit reached, try again later."}
+                                                  "message": "Free AI limit reached, try again in a minute."}
     use_llm(ai.FakeLLM([], error=ai.ProviderError("x")))
     assert post(client, segments).status_code == 502
 

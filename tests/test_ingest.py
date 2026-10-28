@@ -131,4 +131,33 @@ def test_interviewer_tag_from_question():
 def test_static_index_served(client):
     r = client.get("/")
     assert r.status_code == 200 and "<html" in r.text.lower()
-    assert client.get("/api/health").json() == {"ok": True}
+    assert client.get("/api/health").json()["ok"] is True
+
+
+def test_sample_endpoint_and_js_mime(client):
+    r = client.get("/api/sample")
+    assert r.status_code == 200 and r.json()["title"] and "approval" in r.json()["text"]
+    r = client.get("/app.js")
+    assert r.status_code == 200 and "javascript" in r.headers["content-type"]
+    assert "css" in client.get("/style.css").headers["content-type"]
+
+
+def test_fake_ai_mode_runs_sample_end_to_end(client, monkeypatch):
+    monkeypatch.setenv("FAKE_AI", "1")
+    sample = client.get("/api/sample").json()
+    segs = client.post("/api/notes", data={"source_index": "1", "text": sample["text"]}).json()["segments"]
+    r = client.post("/api/generate", json={"title_hint": sample["title"], "segments": segs})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["sop"]["steps"]) >= 4 and body["sop"]["warnings"]
+    cats = {q["category"] for q in body["sop"]["questions"]}
+    assert {"ambiguous_term", "permission_access", "failure_handling"} <= cats
+    assert body["report"]["model"] == "demo (FAKE_AI)"
+    from tests.test_media import make_wav
+
+    r = client.post("/api/transcribe", data={"source_index": "2", "consent": "true"},
+                    files={"chunk": ("c.wav", make_wav(1), "audio/wav")})
+    assert len(r.json()["segments"]) == 2
+    r = client.post("/api/frames", json={"source_index": 3, "items": [
+        {"text": "Orders > Issue refund", "t": 0, "confidence": 90}]})
+    assert r.json()["segments"][0]["kind"] == "screen_text"

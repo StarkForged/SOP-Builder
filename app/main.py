@@ -1,7 +1,8 @@
 """FastAPI app: stateless API + static page."""
 
 import io
-import json
+import logging
+import mimetypes
 import os
 import time
 import wave
@@ -12,6 +13,7 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field
 
 from app import ai
 from app.config import GENERATE_MAX_BYTES, get_settings
@@ -21,6 +23,33 @@ from app.ingest_text import BadFile, extract_text, parse_transcript, parse_trans
 from app.redact import redact
 from app.schema import ExportRequest, GenerateRequest, Segment
 from app.segments import asr_segments, make_id, note_segments, turn_segments
+
+# Windows registries sometimes map .js to text/plain; ES modules need a JavaScript MIME type.
+mimetypes.add_type("text/javascript", ".js")
+# App logs (provider status, token estimates; never keys or user text) go to stdout for Vercel logs.
+_log = logging.getLogger("sop")
+if not _log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(name)s %(levelname)s %(message)s"))
+    _log.addHandler(_h)
+    _log.setLevel(logging.INFO)
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
+
+SAMPLE = {
+    "title": "Customer refund processing",
+    "text": (
+        "Customer refund processing\n"
+        "- Log in to the admin dashboard\n"
+        "- Open the Orders page and search for the order number\n"
+        "- Check the order was paid and delivered\n"
+        "- Refunds above \u20b95,000 need manager approval\n"
+        '- Click "Issue refund" and enter the refund amount\n'
+        "- Never refund to a different card than the one used for payment\n"
+        "- The refund usually reaches the customer soon\n"
+        "- Email the customer the refund confirmation\n"
+    ),
+}
 
 PUBLIC = Path(__file__).resolve().parent.parent / "public"
 app = FastAPI(title="SOP Builder", docs_url=None, redoc_url=None, openapi_url=None)
@@ -54,7 +83,7 @@ async def limits(request: Request, call_next):
 
 @app.exception_handler(ai.ProviderLimit)
 async def _limit(_: Request, __: Exception):
-    return err(429, "daily_free_limit", "Free AI limit reached, try again later.")
+    return err(429, "daily_free_limit", "Free AI limit reached, try again in a minute.")
 
 
 @app.exception_handler(ai.ProviderError)
@@ -87,9 +116,19 @@ def need_consent(consent: str) -> JSONResponse | None:
     return None
 
 
+@app.get("/api/sample")
+def sample():
+    """Built-in example notes for the "Try a sample" button."""
+    return SAMPLE
+
+
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    """Which env vars are set (true/false only, never values)."""
+    e = os.environ.get
+    env = {name: bool(e(name)) for name in ("GROQ_API_KEY", "LLM_API_KEY", "LLM_MODEL", "LLM_FALLBACK_MODEL")}
+    ready = env["GROQ_API_KEY"]  # LLM_API_KEY defaults to GROQ_API_KEY
+    return {"ok": True, "ready": ready, "env": env}
 
 
 @app.post("/api/notes")
@@ -141,38 +180,36 @@ async def transcribe(chunk: UploadFile = File(...), offset_s: float = Form(0, ge
     return {"segments": [seg.model_copy(update={"text": redact(seg.text)}).model_dump() for seg in segs]}
 
 
+MAX_SCREEN_ITEMS = 40  # matches the browser's keyframe cap
+MIN_OCR_CONFIDENCE = 50
+
+
+class ScreenItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(max_length=5000)
+    t: float | None = Field(default=None, ge=0)
+    confidence: float = Field(ge=0, le=100)
+
+
+class ScreenTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_index: int = Field(ge=1, le=999)
+    seq_start: int = Field(default=1, ge=1, le=9000)
+    items: list[ScreenItem] = Field(max_length=MAX_SCREEN_ITEMS)
+
+
 @app.post("/api/frames")
-async def frames(frames: list[UploadFile] = File(...), times: str = Form("[]"),
-                 source_index: int = Form(..., ge=1, le=999), seq_start: int = Form(1, ge=1, le=9000),
-                 consent: str = Form("false"), vision: ai.VisionClient = Depends(ai.get_vision)):
-    s = get_settings()
-    if (resp := need_consent(consent)) is not None:
-        return resp
-    if len(frames) > s.max_frames:
-        return err(400, "too_many_frames", f"Send at most {s.max_frames} frames per request.")
-    try:
-        ts = [float(t) for t in json.loads(times)]
-    except (ValueError, TypeError):
-        return err(400, "bad_times", "times must be a JSON list of seconds.")
-    images, total = [], 0
-    for f in frames:
-        data = await read_upload(f, s.max_frames_bytes)
-        total += len(data)
-        if not (data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG")):
-            raise BadFile("Frames must be JPEG or PNG images.")
-        images.append(data)
-    if total > s.max_frames_bytes:
-        return err(413, "too_large", "Frame batch is too large (max 3.5 MB).")
-    texts = vision.read_frames(images)
-    segs, seq = [], seq_start
-    for i, text in enumerate(texts):
-        text = redact((text or "").strip())
-        if not text:
+async def frames(req: ScreenTextRequest):
+    """Screen text already read in the browser (OCR) -> redacted screen_text segments. No images accepted."""
+    segs, seq = [], req.seq_start
+    for item in req.items:
+        lines = (" ".join(line.split()) for line in item.text.splitlines())
+        text = redact("\n".join(line for line in lines if line))
+        if item.confidence < MIN_OCR_CONFIDENCE or len(text.strip()) < 3:
             continue
-        t = ts[i] if i < len(ts) else None
-        segs.append(Segment(id=make_id(source_index, seq), source_index=source_index, kind="screen_text",
-                            speaker_role="system", text=text[:20000], start_s=t, end_s=t,
-                            confidence=None).model_dump())
+        segs.append(Segment(id=make_id(req.source_index, seq), source_index=req.source_index, kind="screen_text",
+                            speaker_role="system", text=text, start_s=item.t, end_s=item.t,
+                            confidence=round(item.confidence / 100, 3)).model_dump())
         seq += 1
     return {"segments": segs}
 
@@ -186,6 +223,12 @@ async def generate(request: Request, llm: ai.LLMClient = Depends(ai.get_llm)):
         req = GenerateRequest.model_validate_json(body)
     except ValueError as exc:
         return err(422, "invalid_request", f"Invalid request: {str(exc)[:300]}")
+    limit = get_settings().max_source_chars
+    size = sum(len(s.text) for s in req.segments) + sum(len(a.question) + len(a.answer) for a in req.answers)
+    if size > limit:
+        return err(413, "source_too_long",
+                   f"Sources are too long for the free AI tier ({size:,} characters, max {limit:,}). "
+                   "Remove or shorten a source and try again.")
     try:
         return generate_sop(req, llm)
     except InsufficientSource:

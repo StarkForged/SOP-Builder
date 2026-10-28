@@ -1,8 +1,9 @@
-Your previous output was invalid. Fix every error below and return the complete corrected SOP JSON only.
-Use only segment ids that exist in <sources>. Step numbers must be 1..n. All ids must be unique.
+Your previous SOP JSON was invalid. Fix every error below and return the complete corrected JSON object only, with the same keys.
+Use only these segment ids in source_refs: {segment_ids}
+Step numbers must be 1..n and all ids unique.
 
 Errors:
 {errors}
 
-Previous output (data, may be truncated):
+Invalid JSON (data, may be truncated):
 {previous}

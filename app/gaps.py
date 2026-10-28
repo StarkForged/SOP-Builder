@@ -18,7 +18,7 @@ CONDITION_WORDS = re.compile(
 )
 FAILURE = re.compile(
     r"(?i)\b(fail\w*|error\w*|reject\w*|declin\w*|exception|escalat\w*|retry|otherwise|unable|cannot|"
-    r"can't|invalid|wrong|incorrect|problem|issue|not (?:work|match|approved|available))\b"
+    r"can't|invalid|wrong|incorrect|problems?|issues? with|not (?:work|match|approved|available))\b"
 )
 SYSTEM = re.compile(
     r"(?i)\b(system|dashboard|portal|log ?in|sign in|software|application|crm|erp|admin panel|"
