@@ -1,1 +1,84 @@
-<!doctype html><html><head><title>SOP Builder</title></head><body>SOP Builder</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOP Builder</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="container">
+  <h1>SOP Builder</h1>
+  <p>Turn screen recordings, staff interviews and rough notes into a Standard Operating Procedure, with the gaps flagged for staff to confirm.</p>
+</header>
+
+<main class="container">
+  <section class="card" id="sec-sources">
+    <h2>1. Add sources</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="notes">Rough notes</button>
+      <button class="tab" data-tab="interview">Staff interview</button>
+      <button class="tab" data-tab="screen">Screen recording</button>
+    </div>
+
+    <div class="tabpanel" id="tab-notes">
+      <label>Paste notes<textarea id="notes-text" rows="7" placeholder="- Open the Orders page&#10;- Search for the order number&#10;- ..."></textarea></label>
+      <label>…or upload a file (.txt .md .docx .pdf, max 4 MB)<input type="file" id="notes-file" accept=".txt,.md,.docx,.pdf"></label>
+      <button id="add-notes">Add notes</button>
+    </div>
+
+    <div class="tabpanel hidden" id="tab-interview">
+      <label>Transcript file (.vtt .srt .txt with "Name:" prefixes)<input type="file" id="transcript-file" accept=".vtt,.srt,.txt"></label>
+      <button id="add-transcript">Add transcript</button>
+      <hr>
+      <label>…or an audio/video recording (mp3 wav m4a ogg webm mp4 mov, max 200 MB / 30 min)<input type="file" id="interview-media" accept=".mp3,.wav,.m4a,.ogg,.webm,.mp4,.mov,audio/*,video/*"></label>
+      <button id="add-interview-media">Transcribe interview</button>
+    </div>
+
+    <div class="tabpanel hidden" id="tab-screen">
+      <label>Screen recording (mp4 webm mov, max 200 MB / 30 min)<input type="file" id="screen-file" accept=".mp4,.webm,.mov,video/*"></label>
+      <button id="add-screen">Process recording</button>
+      <p class="muted">Narration is transcribed and a screenshot is read every 3 seconds (max 40).</p>
+    </div>
+
+    <label class="consent"><input type="checkbox" id="consent"> Audio and screenshots are sent to free AI services (Groq, Google Gemini). Don't upload confidential or personal data.</label>
+
+    <div id="progress" class="muted"></div>
+    <div id="sources-error" class="error"></div>
+    <h3>Added sources</h3>
+    <ul id="source-list" class="list"><li class="muted">No sources yet.</li></ul>
+  </section>
+
+  <section class="card" id="sec-generate">
+    <h2>2. Generate SOP</h2>
+    <label>Title hint (optional)<input type="text" id="title-hint" maxlength="200"></label>
+    <button id="generate" class="primary">Generate SOP</button>
+    <div id="generate-status" class="muted"></div>
+    <div id="generate-error" class="error"></div>
+  </section>
+
+  <section class="card" id="sec-review">
+    <h2>3. Review</h2>
+    <div id="review"><p class="muted">Generate an SOP to review it here.</p></div>
+  </section>
+
+  <section class="card" id="sec-export">
+    <h2>4. Export</h2>
+    <label>Reviewer name<input type="text" id="reviewer" maxlength="120"></label>
+    <div class="row">
+      <button id="export-docx">Download DOCX</button>
+      <button id="export-md">Download Markdown</button>
+      <button id="save-session">Save session (JSON)</button>
+      <label class="filebtn">Load session<input type="file" id="load-session" accept=".json"></label>
+      <button id="clear-session" class="link">Start over</button>
+    </div>
+    <div id="export-error" class="error"></div>
+  </section>
+</main>
+
+<footer class="container muted">
+  Nothing is stored on our server. Files are processed by Groq and Google Gemini free tiers; don't upload confidential data.
+</footer>
+<script src="/app.js"></script>
+</body>
+</html>

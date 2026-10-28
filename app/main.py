@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import time
 import wave
 from collections import defaultdict, deque
@@ -212,5 +213,6 @@ def index():
     return FileResponse(PUBLIC / "index.html")
 
 
-if PUBLIC.exists():
+# On Vercel, public/ is served by the CDN and must not be mounted; mount it only for local runs.
+if PUBLIC.exists() and not os.environ.get("VERCEL"):
     app.mount("/", StaticFiles(directory=PUBLIC, html=True), name="static")
